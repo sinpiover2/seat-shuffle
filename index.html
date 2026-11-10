@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>[hidden]{display:none!important} body{margin:0} :root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}</style>
+<title>Seat Shuffle</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&display=swap">
+<style>
+/* Layout: a setup screen (desk map + settings) and a projector screen (countdown + room map filling the viewport). */
+:root {
+  --bg: #f3f5f4;
+  --surface: #ffffff;
+  --ink: #17221f;
+  --muted: #5d6b67;
+  --line: #d3dbd8;
+  --accent: #0f6b5c;      /* deep green, classroom-board */
+  --accent-ink: #ffffff;
+  --signal: #f2b01e;      /* hallway-pass yellow, used for "move now" */
+  --signal-ink: #1d1600;
+  --off: #e6ebe9;
+  --font-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1614; --surface: #17211e; --ink: #e8efec; --muted: #9aaba6; --line: #2b3a36;
+    --accent: #3fb59d; --accent-ink: #04211b; --signal: #f5bd3a; --signal-ink: #1d1600; --off: #1b2522;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1614; --surface: #17211e; --ink: #e8efec; --muted: #9aaba6; --line: #2b3a36;
+  --accent: #3fb59d; --accent-ink: #04211b; --signal: #f5bd3a; --signal-ink: #1d1600; --off: #1b2522;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: var(--font-body); font-size: 16px; line-height: 1.5;
+}
+* { box-sizing: border-box; }
+button, input { font: inherit; color: inherit; }
+button:focus-visible, input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+/* ---------- Setup view ---------- */
+.setup {
+  max-width: 1100px; margin: 0 auto;
+  padding-block: 28px 48px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 28px;
+}
+.top { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 16px; }
+h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 5vw, 3rem); line-height: 1; margin: 0; letter-spacing: -0.02em; }
+.sub { color: var(--muted); margin: 6px 0 0; max-width: 60ch; }
+.cols { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+@media (max-width: 820px) { .cols { grid-template-columns: minmax(0, 1fr); } }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px; display: grid; gap: 16px; min-width: 0; }
+.panel h2 { font-family: var(--font-display); font-weight: 600; font-size: 1.25rem; margin: 0; }
+.label { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 700; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.front { display: grid; grid-template-columns: 4fr 0.6fr 4fr; align-items: end; font-size: 0.75rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); padding-bottom: 6px; }
+.front .tv { grid-column: 3; text-align: center; border-bottom: 5px solid var(--ink); color: var(--ink); font-weight: 700; justify-self: center; padding: 0 2.5em 2px; }
+.front .door { grid-column: 3; grid-row: 1; justify-self: end; border-right: 4px solid var(--muted); padding-right: 6px; }
+.front .lbl { grid-column: 1; grid-row: 1; }
+.deskmap { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(0, 0.6fr) repeat(4, minmax(0, 1fr)); gap: 8px 4px; }
+.aisle { min-width: 0; }
+.desk {
+  aspect-ratio: 4 / 3; max-width: 100%; border-radius: 8px; cursor: pointer;
+  border: 2px dashed var(--line); background: transparent; color: var(--muted);
+  font-family: var(--font-display); font-weight: 600; font-size: clamp(0.9rem, 2.4vw, 1.3rem);
+  font-variant-numeric: tabular-nums; transition: background .12s, border-color .12s;
+}
+.desk[aria-pressed="true"] { border: 2px solid var(--accent); background: var(--accent); color: var(--accent-ink); }
+.desk:hover { border-color: var(--accent); }
+.btn {
+  border: 1px solid var(--line); background: var(--surface); border-radius: 999px;
+  padding: 8px 16px; cursor: pointer; font-weight: 700; font-size: 0.92rem;
+}
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.big { padding: 14px 26px; font-size: 1.1rem; }
+.field { display: grid; gap: 6px; }
+.field input[type=number] { width: 7rem; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+.check { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+.check input { margin-top: 4px; width: 18px; height: 18px; accent-color: var(--accent); }
+.hint { color: var(--muted); font-size: 0.88rem; margin: 0; }
+.names { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; max-height: 340px; overflow: auto; padding-right: 4px; }
+.names label { display: flex; align-items: center; gap: 8px; background: var(--bg); border-radius: 8px; padding: 4px 4px 4px 10px; }
+.names span { font-weight: 700; font-variant-numeric: tabular-nums; min-width: 2ch; color: var(--accent); }
+.names input { flex: 1; min-width: 0; border: 0; background: transparent; padding: 6px 4px; }
+.count { font-family: var(--font-display); font-weight: 600; }
+
+/* ---------- Projector view ---------- */
+.show {
+  height: 100%; display: grid; grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 1.2vh; padding-block: 1.6vh;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.bar { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; justify-content: space-between; }
+.clock { display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; }
+.clock .time { font-family: var(--font-display); font-weight: 800; font-size: clamp(2.6rem, 9vh, 6.5rem); line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.clock .what { font-size: clamp(1rem, 2.6vh, 1.6rem); color: var(--muted); }
+.show.moving .bar { background: var(--signal); color: var(--signal-ink); border-radius: 14px; padding: 0.6vh 18px; }
+.show.moving .clock .what { color: var(--signal-ink); font-weight: 700; }
+.show.moving .btn { background: transparent; border-color: var(--signal-ink); color: var(--signal-ink); }
+.show.moving .btn.primary { background: var(--signal-ink); color: var(--signal); }
+.progress { height: 6px; background: var(--off); border-radius: 3px; overflow: hidden; }
+.progress div { height: 100%; background: var(--accent); width: 0; transition: width .25s linear; }
+.show.moving .progress div { background: var(--signal); }
+.room { container-type: size; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 0.8vh; }
+.room .front { font-size: clamp(0.7rem, 1.6vh, 1rem); }
+.roomgrid {
+  display: grid; min-height: 0;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(0, 0.6fr) repeat(4, minmax(0, 1fr));
+  grid-template-rows: repeat(5, minmax(0, 1fr));
+  gap: 2.2cqh 0.6cqw;
+  --unit: min(calc(100cqw / 8.6), calc(100cqh / 5.4));
+}
+.card {
+  border-radius: calc(var(--unit) * 0.08); min-width: 0; min-height: 0; overflow: hidden;
+  background: var(--surface); border: 2px solid var(--line);
+  display: grid; place-content: center; text-align: center; gap: calc(var(--unit) * 0.02);
+  padding: 2px;
+}
+.card.empty { background: transparent; border: 2px dashed var(--off); }
+.card.none { visibility: hidden; }
+.card .from { font-size: calc(var(--unit) * 0.13); color: var(--muted); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.card .nm { font-size: calc(var(--unit) * 0.14); font-weight: 700; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.card .to { font-family: var(--font-display); font-weight: 800; font-size: calc(var(--unit) * 0.34); line-height: 1; color: var(--accent); font-variant-numeric: tabular-nums; }
+.card .to .arrow { font-size: 0.6em; vertical-align: 0.12em; margin-right: 0.08em; }
+.card.hidden .to { color: var(--muted); }
+.show.moving .card:not(.empty) { border-color: var(--signal); }
+.show.moving .card .to { color: var(--ink); }
+.show.moving .card { animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 50% { background: color-mix(in srgb, var(--signal) 22%, var(--surface)); } }
+@media (prefers-reduced-motion: reduce) { .show.moving .card { animation: none; } }
+.ctrl { display: flex; flex-wrap: wrap; gap: 8px; }
+</style>
+</head>
+<body>
+
+<section class="setup" id="setupView">
+  <div class="top">
+    <div>
+      <h1>Seat Shuffle</h1>
+      <p class="sub">Mark the desks in use, set how often to move, then open the big-screen view. Every student gets a new desk each round, and nobody stays put.</p>
+    </div>
+    <button class="btn primary big" id="goShow">Open big screen →</button>
+  </div>
+
+  <div class="cols">
+    <div class="panel">
+      <div class="row" style="justify-content: space-between">
+        <h2>Desks in use</h2>
+        <span class="count" id="activeCount"></span>
+      </div>
+      <p class="hint">Tap a desk to turn it on or off. The starting selection is an example; change it to match your room.</p>
+      <div class="front"><span class="lbl">Room 16 · front</span><span class="tv">TV</span><span class="door">Door</span></div>
+      <div class="deskmap" id="deskmap"></div>
+      <div class="row">
+        <button class="btn" id="allOn">All on</button>
+        <button class="btn" id="allOff">All off</button>
+        <button class="btn" id="homeSetup" style="margin-left:auto">Everyone to home seats</button>
+      </div>
+      <p class="hint">Each student's number is their home seat: student 12 starts at desk 12. <span id="homeState"></span></p>
+    </div>
+
+    <div class="panel">
+      <h2>Timing</h2>
+      <div class="row" style="gap:20px">
+        <label class="field" for="minutes">
+          <span class="label">Shuffle every (minutes)</span>
+          <input type="number" id="minutes" min="0.5" max="180" step="0.5">
+        </label>
+        <label class="field" for="moveSecs">
+          <span class="label">Time to move (seconds)</span>
+          <input type="number" id="moveSecs" min="10" max="600" step="5">
+        </label>
+      </div>
+      <label class="check"><input type="checkbox" id="surprise"><span>Keep next seats hidden until it's time to move</span></label>
+      <label class="check"><input type="checkbox" id="chime"><span>Play a chime when it's time to move</span></label>
+      <label class="check"><input type="checkbox" id="waitForMe"><span>After the move, wait for me to start the next round</span></label>
+
+      <h2 style="margin-top:8px">Names <span class="hint" style="font-family:var(--font-body)">(optional)</span></h2>
+      <p class="hint">Who belongs to each home seat number. Leave blank to show student numbers only. Names follow students as they move.</p>
+      <div class="names" id="names"></div>
+      <div class="row"><button class="btn" id="clearNames">Clear names</button></div>
+    </div>
+  </div>
+</section>
+
+<section class="show" id="showView" hidden>
+  <div class="bar">
+    <div class="clock">
+      <span class="time" id="time">10:00</span>
+      <span class="what" id="what">until the next move</span>
+    </div>
+    <div class="ctrl">
+      <button class="btn primary" id="startPause">Start</button>
+      <button class="btn" id="moveNow">Move now</button>
+      <button class="btn" id="reshuffle">New seats</button>
+      <button class="btn" id="homeShow">Home seats</button>
+      <button class="btn" id="full">Full screen</button>
+      <button class="btn" id="back">Setup</button>
+    </div>
+  </div>
+  <div class="progress"><div id="bar"></div></div>
+  <div class="room">
+    <div class="front"><span class="lbl">Front of room</span><span class="tv">TV</span><span class="door">Door</span></div>
+    <div class="roomgrid" id="roomgrid"></div>
+  </div>
+</section>
+
+<script>
+(() => {
+  const TOTAL = 36;
+  const $ = id => document.getElementById(id);
+  // Room 16 seating chart, front (TV) at top. 0 = no desk, "|" = center aisle.
+  const LAYOUT = [
+    [24, 23, 22, 21, "|", 4, 3, 2, 1],
+    [28, 27, 26, 25, "|", 8, 7, 6, 5],
+    [32, 31, 30, 29, "|", 12, 11, 10, 9],
+    [0, 0, 34, 33, "|", 16, 15, 14, 13],
+    [0, 0, 36, 35, "|", 20, 19, 18, 17],
+  ];
+  const CELLS = LAYOUT.flat();
+
+  // Example starting selection: a room with a few empty desks scattered around.
+  const exampleOff = [6, 11, 18, 24, 29, 30, 34, 35, 36];
+  const defaults = {
+    cols: 6, minutes: 10, moveSecs: 60, surprise: false, chime: true, waitForMe: false,
+    active: Array.from({ length: TOTAL }, (_, i) => i + 1).filter(d => !exampleOff.includes(d)),
+    names: {},   // keyed by home seat number; names never move
+    at: null     // { currentDesk: homeSeatNumber }
+  };
+
+  let S = load();
+  // Everyone back to the desk that matches their number.
+  function homeAll() { S.at = {}; S.active.forEach(d => S.at[d] = d); }
+  // If the saved positions don't match the desks in use, start from home seats.
+  if (!S.at || Object.keys(S.at).length !== S.active.length || S.active.some(d => !(d in S.at))) homeAll();
+  let plan = null;           // { fromDesk: toDesk }
+  let phase = "idle";        // idle | counting | paused | moving | waiting
+  let endAt = 0, remaining = 0, total = 0;
+  let audio = null, wake = null;
+
+  function load() {
+    try {
+      const raw = localStorage.getItem("seatShuffle");
+      if (raw) return Object.assign({}, defaults, JSON.parse(raw));
+    } catch (e) {}
+    return JSON.parse(JSON.stringify(defaults));
+  }
+  function save() {
+    try { localStorage.setItem("seatShuffle", JSON.stringify(S)); } catch (e) {}
+  }
+  const active = () => [...S.active].sort((a, b) => a - b);
+
+  // Random permutation of the active desks where no one keeps their own desk.
+  function makePlan() {
+    const desks = active();
+    const n = desks.length;
+    const p = {};
+    if (n < 2) { desks.forEach(d => p[d] = d); return p; }
+    let to;
+    do {
+      to = desks.slice();
+      for (let i = n - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [to[i], to[j]] = [to[j], to[i]]; }
+    } while (to.some((d, i) => d === desks[i]));
+    desks.forEach((d, i) => p[d] = to[i]);
+    return p;
+  }
+
+  // ---------- Setup ----------
+  function renderSetup() {
+    const map = $("deskmap");
+    map.innerHTML = "";
+    for (const d of CELLS) {
+      if (d === "|" || d === 0) { const s = document.createElement("div"); s.className = "aisle"; map.appendChild(s); continue; }
+      const b = document.createElement("button");
+      b.className = "desk"; b.textContent = d; b.id = "desk-" + d;
+      b.setAttribute("aria-pressed", S.active.includes(d));
+      b.setAttribute("aria-label", "Desk " + d);
+      b.onclick = () => {
+        S.active = S.active.includes(d) ? S.active.filter(x => x !== d) : [...S.active, d];
+        if (!S.active.includes(d)) delete S.names[d];
+        homeAll(); plan = null; phase = "idle"; save(); renderSetup();
+      };
+      map.appendChild(b);
+    }
+    $("activeCount").textContent = S.active.length + " of " + TOTAL + " desks";
+
+    const names = $("names");
+    names.innerHTML = "";
+    active().forEach(d => {
+      const l = document.createElement("label");
+      l.innerHTML = `<span>${d}</span>`;
+      const inp = document.createElement("input");
+      inp.id = "name-" + d; inp.placeholder = "Name"; inp.value = S.names[d] || "";
+      inp.oninput = () => { if (inp.value.trim()) S.names[d] = inp.value; else delete S.names[d]; save(); };
+      l.appendChild(inp);
+      names.appendChild(l);
+    });
+    if (!S.active.length) names.innerHTML = '<p class="hint">Turn on some desks to add names.</p>';
+
+    const away = Object.keys(S.at).filter(d => S.at[d] != d).length;
+    $("homeState").textContent = away ? `Right now ${away} students are away from their home seats.` : "Everyone is in their home seat.";
+    $("minutes").value = S.minutes;
+    $("moveSecs").value = S.moveSecs;
+    $("surprise").checked = S.surprise;
+    $("chime").checked = S.chime;
+    $("waitForMe").checked = S.waitForMe;
+  }
+
+  $("allOn").onclick = () => { S.active = Array.from({ length: TOTAL }, (_, i) => i + 1); homeAll(); plan = null; phase = "idle"; save(); renderSetup(); };
+  $("allOff").onclick = () => { S.active = []; S.names = {}; homeAll(); plan = null; phase = "idle"; save(); renderSetup(); };
+  function goHome() {
+    homeAll(); plan = makePlan(); phase = "idle"; total = 0; save();
+    renderSetup();
+    if (!$("showView").hidden) { renderRoom(); renderBar(); }
+  }
+  $("homeSetup").onclick = goHome;
+  $("clearNames").onclick = () => { S.names = {}; save(); renderSetup(); };
+  const num = (id, key, min, max) => $(id).addEventListener("change", () => {
+    const v = parseFloat($(id).value);
+    if (!isNaN(v)) S[key] = Math.min(max, Math.max(min, v));
+    $(id).value = S[key]; save(); renderSetup();
+  });
+  num("minutes", "minutes", 0.5, 180); num("moveSecs", "moveSecs", 10, 600);
+  ["surprise", "chime", "waitForMe"].forEach(k => $(k).addEventListener("change", () => { S[k] = $(k).checked; save(); }));
+
+  // ---------- Big screen ----------
+  function fmt(ms) {
+    const s = Math.max(0, Math.ceil(ms / 1000));
+    return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+  }
+
+  function renderRoom() {
+    const g = $("roomgrid");
+    const hide = S.surprise && phase !== "moving";
+    g.innerHTML = "";
+    for (const d of CELLS) {
+      const c = document.createElement("div");
+      if (d === "|") { c.className = "aisle"; g.appendChild(c); continue; }
+      if (d === 0) { c.className = "card none"; g.appendChild(c); continue; }
+      if (!S.active.includes(d)) { c.className = "card empty"; g.appendChild(c); continue; }
+      c.className = "card" + (hide ? " hidden" : "");
+      const who = S.at[d];
+      const name = S.names[who];
+      const to = hide ? "?" : plan[d];
+      c.innerHTML =
+        `<div class="nm"></div>` +
+        `<div class="from">${name ? "#" + who + " · " : ""}at desk ${d}</div>` +
+        `<div class="to"><span class="arrow">→</span>${to}</div>`;
+      c.querySelector(".nm").textContent = name || "#" + who;
+      g.appendChild(c);
+    }
+  }
+
+  function renderBar() {
+    const show = $("showView");
+    show.classList.toggle("moving", phase === "moving");
+    let ms = 0, pct = 0;
+    if (phase === "counting") ms = endAt - Date.now();
+    else if (phase === "paused") ms = remaining;
+    else if (phase === "moving") ms = endAt - Date.now();
+    else if (phase === "idle" || phase === "waiting") ms = S.minutes * 60000;
+    pct = total ? 100 * (1 - ms / total) : 0;
+    if (phase === "idle" || phase === "waiting") pct = 0;
+    $("time").textContent = phase === "moving" ? "Move now!" : fmt(ms);
+    $("what").textContent = {
+      idle: "until the next move. Press Start.",
+      counting: "until the next move",
+      paused: "Paused",
+      moving: S.waitForMe ? "Go to your new desk · " + fmt(ms) + " left" : "Go to your new desk · next round starts in " + fmt(ms),
+      waiting: "Everyone seated? Press Start for the next round."
+    }[phase];
+    $("startPause").textContent = phase === "counting" ? "Pause" : phase === "moving" ? "Everyone's seated" : phase === "paused" ? "Resume" : "Start";
+    $("moveNow").hidden = phase === "moving";
+    $("reshuffle").hidden = phase === "moving";
+    $("bar").style.width = Math.min(100, Math.max(0, pct)) + "%";
+  }
+
+  function startCountdown() {
+    total = S.minutes * 60000;
+    endAt = Date.now() + total;
+    phase = "counting";
+    keepAwake();
+    renderRoom(); renderBar();
+  }
+
+  function beginMove() {
+    phase = "moving";
+    total = S.moveSecs * 1000;
+    endAt = Date.now() + total;
+    if (S.chime) chime();
+    renderRoom(); renderBar();
+  }
+
+  function finishMove() {
+    // Students (and their names) travel to their new desks.
+    const moved = {};
+    Object.keys(S.at).forEach(d => { moved[plan[d]] = S.at[d]; });
+    S.at = moved; save();
+    plan = makePlan();
+    if (S.waitForMe) { phase = "waiting"; total = 0; renderRoom(); renderBar(); }
+    else startCountdown();
+  }
+
+  function tick() {
+    if (phase === "counting" && Date.now() >= endAt) beginMove();
+    else if (phase === "moving" && Date.now() >= endAt) finishMove();
+    if ($("showView").hidden === false) renderBar();
+  }
+  setInterval(tick, 250);
+
+  $("startPause").onclick = () => {
+    unlockAudio();
+    if (phase === "counting") { remaining = endAt - Date.now(); phase = "paused"; }
+    else if (phase === "paused") { endAt = Date.now() + remaining; phase = "counting"; }
+    else if (phase === "moving") { finishMove(); return; }
+    else startCountdown();
+    renderBar();
+  };
+  $("moveNow").onclick = () => { unlockAudio(); beginMove(); };
+  $("reshuffle").onclick = () => { plan = makePlan(); renderRoom(); };
+  $("homeShow").onclick = goHome;
+  $("full").onclick = () => {
+    const el = document.documentElement;
+    try {
+      if (document.fullscreenElement) document.exitFullscreen();
+      else if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
+    } catch (e) {}
+  };
+  $("goShow").onclick = () => {
+    if (S.active.length < 2) { $("activeCount").textContent = "Turn on at least 2 desks"; return; }
+    if (!plan) plan = makePlan();
+    $("setupView").hidden = true; $("showView").hidden = false;
+    renderRoom(); renderBar();
+  };
+  $("back").onclick = () => {
+    if (phase === "counting") { remaining = endAt - Date.now(); phase = "paused"; }
+    $("showView").hidden = true; $("setupView").hidden = false;
+    renderSetup();
+  };
+  window.addEventListener("resize", () => {});
+
+  // ---------- Sound & screen ----------
+  function unlockAudio() {
+    try { if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)(); if (audio.state === "suspended") audio.resume(); } catch (e) {}
+  }
+  function chime() {
+    if (!audio) return;
+    try {
+      const t = audio.currentTime;
+      [659.25, 783.99, 1046.5].forEach((f, i) => {
+        const o = audio.createOscillator(), g = audio.createGain();
+        o.type = "sine"; o.frequency.value = f;
+        g.gain.setValueAtTime(0.0001, t + i * 0.18);
+        g.gain.exponentialRampToValueAtTime(0.35, t + i * 0.18 + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.18 + 0.9);
+        o.connect(g).connect(audio.destination);
+        o.start(t + i * 0.18); o.stop(t + i * 0.18 + 1);
+      });
+    } catch (e) {}
+  }
+  async function keepAwake() {
+    try { if ("wakeLock" in navigator && !wake) { wake = await navigator.wakeLock.request("screen"); wake.addEventListener("release", () => wake = null); } } catch (e) {}
+  }
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && phase === "counting") keepAwake(); });
+
+  renderSetup();
+})();
+</script>
+</body>
+</html>
