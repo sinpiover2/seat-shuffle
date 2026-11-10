@@ -141,6 +141,17 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
 @keyframes pulse { 50% { background: color-mix(in srgb, var(--signal) 22%, var(--surface)); } }
 @media (prefers-reduced-motion: reduce) { .show.moving .card { animation: none; } }
 .ctrl { display: flex; flex-wrap: wrap; gap: 8px; }
+.classbar { display: flex; flex-wrap: wrap; align-items: end; gap: 12px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px 20px; }
+.classbar .hint { flex-basis: 100%; }
+.classbar select, .classbar input[type=text] { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); min-width: 0; max-width: 100%; }
+.classbar select { min-width: 12rem; font-weight: 700; }
+.classbar input[type=text] { width: 16rem; }
+.btn.danger { color: #b3261e; }
+:root[data-theme="dark"] .btn.danger { color: #ff8a80; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .btn.danger { color: #ff8a80; } }
+.classtag { font-size: clamp(0.9rem, 2.2vh, 1.4rem); font-weight: 700; background: var(--off); border-radius: 999px; padding: 2px 14px; }
+.classtag:empty { display: none; }
+.show.moving .classtag { background: transparent; border: 2px solid var(--signal-ink); }
 </style>
 </head>
 <body>
@@ -152,6 +163,22 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
       <p class="sub">Mark the desks in use, set how often to move, then open the big-screen view. Every student gets a new desk each round, and nobody stays put.</p>
     </div>
     <button class="btn primary big" id="goShow">Open big screen →</button>
+  </div>
+
+  <div class="classbar">
+    <label class="field" for="classPick">
+      <span class="label">Class</span>
+      <select id="classPick"></select>
+    </label>
+    <label class="field" for="className">
+      <span class="label">Class name</span>
+      <input type="text" id="className" placeholder="e.g. Period 2 · Math 8" maxlength="40">
+    </label>
+    <div class="row">
+      <button class="btn" id="addClass">+ Add class</button>
+      <button class="btn danger" id="delClass">Delete class</button>
+    </div>
+    <p class="hint">Each class keeps its own desks, names and home seats. Timing settings are shared. A new class starts with the same desks as the one you're on.</p>
   </div>
 
   <div class="cols">
@@ -200,6 +227,7 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
     <div class="clock">
       <span class="time" id="time">10:00</span>
       <span class="what" id="what">until the next move</span>
+      <span class="classtag" id="showClass"></span>
     </div>
     <div class="ctrl">
       <button class="btn primary" id="startPause">Start</button>
@@ -233,18 +261,30 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
 
   // Example starting selection: a room with a few empty desks scattered around.
   const exampleOff = [6, 11, 18, 24, 29, 30, 34, 35, 36];
+  // Each class has its own desks in use, names, and current positions.
+  //   active: desk numbers in use; names: keyed by home seat number; at: { currentDesk: homeSeatNumber }
+  const newClass = (name, active) => ({ id: "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, active: active.slice(), names: {}, at: null });
   const defaults = {
-    cols: 6, minutes: 10, moveSecs: 60, surprise: false, chime: true, waitForMe: false,
-    active: Array.from({ length: TOTAL }, (_, i) => i + 1).filter(d => !exampleOff.includes(d)),
-    names: {},   // keyed by home seat number; names never move
-    at: null     // { currentDesk: homeSeatNumber }
+    minutes: 10, moveSecs: 60, surprise: false, chime: true, waitForMe: false,
+    classes: null, current: null
   };
 
   let S = load();
+  // Older saves had a single room setup: turn it into the first class.
+  if (!Array.isArray(S.classes) || !S.classes.length) {
+    const first = newClass("Period 1", Array.isArray(S.active) ? S.active : Array.from({ length: TOTAL }, (_, i) => i + 1).filter(d => !exampleOff.includes(d)));
+    if (S.names) first.names = S.names;
+    if (S.at) first.at = S.at;
+    S.classes = [first]; S.current = first.id;
+  }
+  delete S.active; delete S.names; delete S.at; delete S.cols;
+  let C = S.classes.find(c => c.id === S.current) || S.classes[0];
+  S.current = C.id;
   // Everyone back to the desk that matches their number.
-  function homeAll() { S.at = {}; S.active.forEach(d => S.at[d] = d); }
+  function homeAll() { C.at = {}; C.active.forEach(d => C.at[d] = d); }
   // If the saved positions don't match the desks in use, start from home seats.
-  if (!S.at || Object.keys(S.at).length !== S.active.length || S.active.some(d => !(d in S.at))) homeAll();
+  function checkAt() { if (!C.at || Object.keys(C.at).length !== C.active.length || C.active.some(d => !(d in C.at))) homeAll(); }
+  checkAt();
   let plan = null;           // { fromDesk: toDesk }
   let phase = "idle";        // idle | counting | paused | moving | waiting
   let endAt = 0, remaining = 0, total = 0;
@@ -257,10 +297,55 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
     } catch (e) {}
     return JSON.parse(JSON.stringify(defaults));
   }
+
+  // ---------- Classes ----------
+  function switchClass(id) {
+    C = S.classes.find(c => c.id === id) || S.classes[0];
+    S.current = C.id; checkAt();
+    plan = null; phase = "idle"; total = 0; save(); renderSetup();
+  }
+  function renderClasses() {
+    const pick = $("classPick");
+    pick.innerHTML = "";
+    S.classes.forEach(c => {
+      const o = document.createElement("option");
+      o.value = c.id; o.textContent = c.name || "Untitled class";
+      pick.appendChild(o);
+    });
+    pick.value = C.id;
+    $("className").value = C.name;
+    $("delClass").hidden = S.classes.length < 2;
+    $("showClass").textContent = C.name;
+  }
+  $("classPick").addEventListener("change", () => switchClass($("classPick").value));
+  $("className").addEventListener("input", () => {
+    C.name = $("className").value; save();
+    const o = $("classPick").querySelector(`option[value="${C.id}"]`);
+    if (o) o.textContent = C.name || "Untitled class";
+    $("showClass").textContent = C.name;
+  });
+  $("addClass").onclick = () => {
+    const c = newClass("Period " + (S.classes.length + 1), C.active);
+    S.classes.push(c); switchClass(c.id);
+    $("className").focus(); $("className").select();
+  };
+  let delTimer = null;
+  $("delClass").onclick = () => {
+    const b = $("delClass");
+    if (!b.dataset.armed) {
+      b.dataset.armed = "1"; b.textContent = "Delete " + (C.name || "this class") + "? Click again";
+      clearTimeout(delTimer);
+      delTimer = setTimeout(() => { delete b.dataset.armed; b.textContent = "Delete class"; }, 4000);
+      return;
+    }
+    clearTimeout(delTimer); delete b.dataset.armed; b.textContent = "Delete class";
+    S.classes = S.classes.filter(c => c.id !== C.id);
+    switchClass(S.classes[0].id);
+  };
   function save() {
     try { localStorage.setItem("seatShuffle", JSON.stringify(S)); } catch (e) {}
   }
-  const active = () => [...S.active].sort((a, b) => a - b);
+  const active = () => [...C.active].sort((a, b) => a - b);
 
   // Random permutation of the active desks where no one keeps their own desk.
   function makePlan() {
@@ -279,22 +364,23 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
 
   // ---------- Setup ----------
   function renderSetup() {
+    renderClasses();
     const map = $("deskmap");
     map.innerHTML = "";
     for (const d of CELLS) {
       if (d === "|" || d === 0) { const s = document.createElement("div"); s.className = "aisle"; map.appendChild(s); continue; }
       const b = document.createElement("button");
       b.className = "desk"; b.textContent = d; b.id = "desk-" + d;
-      b.setAttribute("aria-pressed", S.active.includes(d));
+      b.setAttribute("aria-pressed", C.active.includes(d));
       b.setAttribute("aria-label", "Desk " + d);
       b.onclick = () => {
-        S.active = S.active.includes(d) ? S.active.filter(x => x !== d) : [...S.active, d];
-        if (!S.active.includes(d)) delete S.names[d];
+        C.active = C.active.includes(d) ? C.active.filter(x => x !== d) : [...C.active, d];
+        if (!C.active.includes(d)) delete C.names[d];
         homeAll(); plan = null; phase = "idle"; save(); renderSetup();
       };
       map.appendChild(b);
     }
-    $("activeCount").textContent = S.active.length + " of " + TOTAL + " desks";
+    $("activeCount").textContent = C.active.length + " of " + TOTAL + " desks";
 
     const names = $("names");
     names.innerHTML = "";
@@ -302,14 +388,14 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
       const l = document.createElement("label");
       l.innerHTML = `<span>${d}</span>`;
       const inp = document.createElement("input");
-      inp.id = "name-" + d; inp.placeholder = "Name"; inp.value = S.names[d] || "";
-      inp.oninput = () => { if (inp.value.trim()) S.names[d] = inp.value; else delete S.names[d]; save(); };
+      inp.id = "name-" + d; inp.placeholder = "Name"; inp.value = C.names[d] || "";
+      inp.oninput = () => { if (inp.value.trim()) C.names[d] = inp.value; else delete C.names[d]; save(); };
       l.appendChild(inp);
       names.appendChild(l);
     });
-    if (!S.active.length) names.innerHTML = '<p class="hint">Turn on some desks to add names.</p>';
+    if (!C.active.length) names.innerHTML = '<p class="hint">Turn on some desks to add names.</p>';
 
-    const away = Object.keys(S.at).filter(d => S.at[d] != d).length;
+    const away = Object.keys(C.at).filter(d => C.at[d] != d).length;
     $("homeState").textContent = away ? `Right now ${away} students are away from their home seats.` : "Everyone is in their home seat.";
     $("minutes").value = S.minutes;
     $("moveSecs").value = S.moveSecs;
@@ -318,15 +404,15 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
     $("waitForMe").checked = S.waitForMe;
   }
 
-  $("allOn").onclick = () => { S.active = Array.from({ length: TOTAL }, (_, i) => i + 1); homeAll(); plan = null; phase = "idle"; save(); renderSetup(); };
-  $("allOff").onclick = () => { S.active = []; S.names = {}; homeAll(); plan = null; phase = "idle"; save(); renderSetup(); };
+  $("allOn").onclick = () => { C.active = Array.from({ length: TOTAL }, (_, i) => i + 1); homeAll(); plan = null; phase = "idle"; save(); renderSetup(); };
+  $("allOff").onclick = () => { C.active = []; C.names = {}; homeAll(); plan = null; phase = "idle"; save(); renderSetup(); };
   function goHome() {
     homeAll(); plan = makePlan(); phase = "idle"; total = 0; save();
     renderSetup();
     if (!$("showView").hidden) { renderRoom(); renderBar(); }
   }
   $("homeSetup").onclick = goHome;
-  $("clearNames").onclick = () => { S.names = {}; save(); renderSetup(); };
+  $("clearNames").onclick = () => { C.names = {}; save(); renderSetup(); };
   const num = (id, key, min, max) => $(id).addEventListener("change", () => {
     const v = parseFloat($(id).value);
     if (!isNaN(v)) S[key] = Math.min(max, Math.max(min, v));
@@ -349,10 +435,10 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
       const c = document.createElement("div");
       if (d === "|") { c.className = "aisle"; g.appendChild(c); continue; }
       if (d === 0) { c.className = "card none"; g.appendChild(c); continue; }
-      if (!S.active.includes(d)) { c.className = "card empty"; g.appendChild(c); continue; }
+      if (!C.active.includes(d)) { c.className = "card empty"; g.appendChild(c); continue; }
       c.className = "card" + (hide ? " hidden" : "");
-      const who = S.at[d];
-      const name = S.names[who];
+      const who = C.at[d];
+      const name = C.names[who];
       const to = hide ? "?" : plan[d];
       c.innerHTML =
         `<div class="nm"></div>` +
@@ -406,8 +492,8 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
   function finishMove() {
     // Students (and their names) travel to their new desks.
     const moved = {};
-    Object.keys(S.at).forEach(d => { moved[plan[d]] = S.at[d]; });
-    S.at = moved; save();
+    Object.keys(C.at).forEach(d => { moved[plan[d]] = C.at[d]; });
+    C.at = moved; save();
     plan = makePlan();
     if (S.waitForMe) { phase = "waiting"; total = 0; renderRoom(); renderBar(); }
     else startCountdown();
@@ -439,7 +525,7 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
     } catch (e) {}
   };
   $("goShow").onclick = () => {
-    if (S.active.length < 2) { $("activeCount").textContent = "Turn on at least 2 desks"; return; }
+    if (C.active.length < 2) { $("activeCount").textContent = "Turn on at least 2 desks"; return; }
     if (!plan) plan = makePlan();
     $("setupView").hidden = true; $("showView").hidden = false;
     renderRoom(); renderBar();
