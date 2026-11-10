@@ -149,6 +149,28 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
 .btn.danger { color: #b3261e; }
 :root[data-theme="dark"] .btn.danger { color: #ff8a80; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .btn.danger { color: #ff8a80; } }
+.card[role=button] { cursor: pointer; }
+.card[role=button]:hover, .card[role=button]:focus-visible { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent); }
+.sheet { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; background: color-mix(in srgb, var(--ink) 45%, transparent);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 16px; }
+.sheetcard { position: relative; background: var(--surface); color: var(--ink); border-radius: 18px; width: min(720px, 100%); max-height: 100%; overflow: auto;
+  padding: clamp(18px, 3vw, 32px); display: grid; gap: 10px; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
+.sheetcard #sheetClose { position: absolute; top: 14px; right: 14px; }
+.sheetcard h2 { font-family: var(--font-display); font-weight: 800; font-size: clamp(1.8rem, 4.5vw, 3rem); line-height: 1.05; margin: 0; padding-right: 90px; overflow-wrap: anywhere; }
+.sheetcard h3 { font-size: 1rem; margin: 14px 0 0; }
+.sheetcard .label, .sheetcard .hint { margin: 0; }
+.trail { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 8px; }
+.trail .arr { font-size: 1.6rem; color: var(--muted); }
+.step { display: grid; justify-items: center; gap: 2px; }
+.step .desknum { font-family: var(--font-display); font-weight: 800; font-variant-numeric: tabular-nums; font-size: clamp(1.6rem, 4vw, 2.6rem);
+  min-width: 2.2em; text-align: center; padding: 4px 10px; border-radius: 10px; border: 2px solid var(--line); }
+.step .cap { font-size: 0.8rem; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+.step.was .desknum { color: var(--muted); }
+.step.now .desknum { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.step.next .desknum { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.others { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.others li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 10px; background: var(--bg); border-radius: 8px; }
+.others span { color: var(--muted); font-variant-numeric: tabular-nums; }
 .classtag { font-size: clamp(0.9rem, 2.2vh, 1.4rem); font-weight: 700; background: var(--off); border-radius: 999px; padding: 2px 14px; }
 .classtag:empty { display: none; }
 .show.moving .classtag { background: transparent; border: 2px solid var(--signal-ink); }
@@ -245,6 +267,13 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
   </div>
 </section>
 
+<div class="sheet" id="sheet" hidden>
+  <div class="sheetcard" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <button class="btn" id="sheetClose">Close</button>
+    <div id="sheetBody"></div>
+  </div>
+</div>
+
 <script>
 (() => {
   const TOTAL = 36;
@@ -285,7 +314,26 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
   // If the saved positions don't match the desks in use, start from home seats.
   function checkAt() { if (!C.at || Object.keys(C.at).length !== C.active.length || C.active.some(d => !(d in C.at))) homeAll(); }
   checkAt();
-  let plan = null;           // { fromDesk: toDesk }
+  let plan = null;           // { fromDesk: toDesk }, also saved as C.plan
+  // A saved plan is only usable if it covers exactly the desks in use.
+  function savedPlan() {
+    const p = C.plan;
+    if (!p) return null;
+    const keys = Object.keys(p).map(Number), vals = Object.values(p).map(Number);
+    const ok = keys.length === C.active.length && C.active.every(d => d in p && vals.includes(d));
+    return ok ? p : null;
+  }
+  plan = savedPlan();
+  // Seating log: each entry is a seating arrangement and when it started.
+  function logSeating(home) {
+    if (!Array.isArray(C.log)) C.log = [];
+    C.log.push({ t: Date.now(), at: Object.assign({}, C.at), home: !!home });
+    if (C.log.length > 300) C.log = C.log.slice(-300);
+  }
+  function ensureLog() {
+    const last = Array.isArray(C.log) && C.log[C.log.length - 1];
+    if (!last || JSON.stringify(last.at) !== JSON.stringify(C.at)) logSeating(Object.keys(C.at).every(d => C.at[d] == d));
+  }
   let phase = "idle";        // idle | counting | paused | moving | waiting
   let endAt = 0, remaining = 0, total = 0;
   let audio = null, wake = null;
@@ -302,7 +350,7 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
   function switchClass(id) {
     C = S.classes.find(c => c.id === id) || S.classes[0];
     S.current = C.id; checkAt();
-    plan = null; phase = "idle"; total = 0; save(); renderSetup();
+    plan = savedPlan(); phase = "idle"; total = 0; save(); renderSetup();
   }
   function renderClasses() {
     const pick = $("classPick");
@@ -343,6 +391,7 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
     switchClass(S.classes[0].id);
   };
   function save() {
+    C.plan = plan;
     try { localStorage.setItem("seatShuffle", JSON.stringify(S)); } catch (e) {}
   }
   const active = () => [...C.active].sort((a, b) => a - b);
@@ -407,7 +456,7 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
   $("allOn").onclick = () => { C.active = Array.from({ length: TOTAL }, (_, i) => i + 1); homeAll(); plan = null; phase = "idle"; save(); renderSetup(); };
   $("allOff").onclick = () => { C.active = []; C.names = {}; homeAll(); plan = null; phase = "idle"; save(); renderSetup(); };
   function goHome() {
-    homeAll(); plan = makePlan(); phase = "idle"; total = 0; save();
+    homeAll(); logSeating(true); plan = makePlan(); phase = "idle"; total = 0; save();
     renderSetup();
     if (!$("showView").hidden) { renderRoom(); renderBar(); }
   }
@@ -428,6 +477,7 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
   }
 
   function renderRoom() {
+    if (!$("sheet").hidden) renderSheet();
     const g = $("roomgrid");
     const hide = S.surprise && phase !== "moving";
     g.innerHTML = "";
@@ -437,6 +487,10 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
       if (d === 0) { c.className = "card none"; g.appendChild(c); continue; }
       if (!C.active.includes(d)) { c.className = "card empty"; g.appendChild(c); continue; }
       c.className = "card" + (hide ? " hidden" : "");
+      c.tabIndex = 0; c.setAttribute("role", "button");
+      c.setAttribute("aria-label", "Desk " + d + ": show where this student was and is going");
+      c.onclick = () => openDesk(d);
+      c.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDesk(d); } };
       const who = C.at[d];
       const name = C.names[who];
       const to = hide ? "?" : plan[d];
@@ -493,8 +547,8 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
     // Students (and their names) travel to their new desks.
     const moved = {};
     Object.keys(C.at).forEach(d => { moved[plan[d]] = C.at[d]; });
-    C.at = moved; save();
-    plan = makePlan();
+    C.at = moved; logSeating(false);
+    plan = makePlan(); save();
     if (S.waitForMe) { phase = "waiting"; total = 0; renderRoom(); renderBar(); }
     else startCountdown();
   }
@@ -515,7 +569,7 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
     renderBar();
   };
   $("moveNow").onclick = () => { unlockAudio(); beginMove(); };
-  $("reshuffle").onclick = () => { plan = makePlan(); renderRoom(); };
+  $("reshuffle").onclick = () => { plan = makePlan(); save(); renderRoom(); };
   $("homeShow").onclick = goHome;
   $("full").onclick = () => {
     const el = document.documentElement;
@@ -527,15 +581,75 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
   $("goShow").onclick = () => {
     if (C.active.length < 2) { $("activeCount").textContent = "Turn on at least 2 desks"; return; }
     if (!plan) plan = makePlan();
+    ensureLog(); save();
     $("setupView").hidden = true; $("showView").hidden = false;
     renderRoom(); renderBar();
   };
   $("back").onclick = () => {
+    closeSheet();
     if (phase === "counting") { remaining = endAt - Date.now(); phase = "paused"; }
     $("showView").hidden = true; $("setupView").hidden = false;
     renderSetup();
   };
   window.addEventListener("resize", () => {});
+
+  // ---------- Desk history ("Where was I? Where am I going?") ----------
+  const sameDay = t => new Date(t).toDateString() === new Date().toDateString();
+  const clock = t => new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  let openDeskNum = null;
+  function openDesk(d) {
+    openDeskNum = d;
+    renderSheet();
+    $("sheet").hidden = false;
+    $("sheetClose").focus();
+  }
+  function closeSheet() { $("sheet").hidden = true; openDeskNum = null; }
+  function renderSheet() {
+    const d = openDeskNum;
+    if (d == null || !(d in C.at)) { closeSheet(); return; }
+    const who = C.at[d];
+    const name = C.names[who];
+    const today = (C.log || []).filter(e => sameDay(e.t));
+    // This student's desks today, oldest first, without repeats in a row.
+    const trail = [];
+    today.forEach(e => {
+      const desk = Object.keys(e.at).find(k => e.at[k] == who);
+      if (desk == null) return;
+      if (trail.length && trail[trail.length - 1].desk == desk) return;
+      trail.push({ desk: Number(desk), t: e.t, home: Number(desk) === who });
+    });
+    if (!trail.length || trail[trail.length - 1].desk !== d) trail.push({ desk: d, t: null, home: d === who });
+    const past = trail.slice(0, -1);
+    const hide = S.surprise && phase !== "moving";
+    const next = hide ? "?" : plan && plan[d];
+    // Everyone else who sat at this desk today.
+    const others = [];
+    today.forEach(e => {
+      const s = e.at[d];
+      if (s == null || s == who) return;
+      if (others.length && others[others.length - 1].s == s) return;
+      others.push({ s, t: e.t });
+    });
+    const esc = v => String(v).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+    const chip = (desk, cls, cap) => `<div class="step ${cls}"><div class="desknum">${desk}</div><div class="cap">${cap}</div></div>`;
+    const steps = past.slice(-5).map(p => chip(p.desk, "was", (p.home ? "home · " : "") + clock(p.t)))
+      .concat(chip(d, "now", "now"))
+      .concat(next ? chip(next, "next", phase === "moving" ? "go now" : hide ? "hidden" : "next") : []);
+    $("sheetBody").innerHTML = `
+      <p class="label">Desk ${d}</p>
+      <h2 id="sheetTitle">${name ? esc(name) : "Student #" + who}</h2>
+      <p class="hint">${name ? "#" + who + " · " : ""}Home seat ${who}</p>
+      <div class="trail">${steps.join('<span class="arr" aria-hidden="true">→</span>')}</div>
+      ${past.length > 5 ? `<p class="hint">Showing the last 5 earlier desks of ${past.length} today.</p>` : ""}
+      ${past.length ? "" : `<p class="hint">No earlier desks today.</p>`}
+      <h3>Also at desk ${d} today</h3>
+      ${others.length ? `<ul class="others">${others.slice(-8).reverse().map(o =>
+        `<li><b>${C.names[o.s] ? esc(C.names[o.s]) + " (#" + o.s + ")" : "#" + o.s}</b><span>from ${clock(o.t)}</span></li>`).join("")}</ul>`
+        : `<p class="hint">Nobody else today.</p>`}`;
+  }
+  $("sheetClose").onclick = closeSheet;
+  $("sheet").addEventListener("click", e => { if (e.target === $("sheet")) closeSheet(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("sheet").hidden) closeSheet(); });
 
   // ---------- Sound & screen ----------
   function unlockAudio() {
