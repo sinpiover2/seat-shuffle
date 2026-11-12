@@ -130,10 +130,12 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
 }
 .card.empty { background: transparent; border: 2px dashed var(--off); }
 .card.none { visibility: hidden; }
-.card .from { font-size: calc(var(--unit) * 0.13); color: var(--muted); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
-.card .nm { font-size: calc(var(--unit) * 0.14); font-weight: 700; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-.card .to { font-family: var(--font-display); font-weight: 800; font-size: calc(var(--unit) * 0.34); line-height: 1; color: var(--accent); font-variant-numeric: tabular-nums; }
-.card .to .arrow { font-size: 0.6em; vertical-align: 0.12em; margin-right: 0.08em; }
+.card { position: relative; }
+.card .corner { position: absolute; top: calc(var(--unit) * 0.05); left: calc(var(--unit) * 0.07); font-size: calc(var(--unit) * 0.13); font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; line-height: 1; }
+.card .lead { font-size: calc(var(--unit) * 0.11); font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; line-height: 1.1; }
+.show.moving .card .lead { color: var(--ink); }
+.card .nm { padding: 0 calc(var(--unit) * 0.12); font-size: calc(var(--unit) * 0.13); font-weight: 700; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.card .to { font-family: var(--font-display); font-weight: 800; font-size: calc(var(--unit) * 0.4); line-height: 1; color: var(--accent); font-variant-numeric: tabular-nums; }
 .card.hidden .to { color: var(--muted); }
 .show.moving .card:not(.empty) { border-color: var(--signal); }
 .show.moving .card .to { color: var(--ink); }
@@ -494,11 +496,14 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
       const who = C.at[d];
       const name = C.names[who];
       const to = hide ? "?" : plan[d];
+      // The card sits in this desk's spot, so it only needs the desk number (corner) and where to go.
+      const lead = phase === "moving" ? "Go now to" : hide ? "Next desk" : "Go to";
       c.innerHTML =
-        `<div class="nm"></div>` +
-        `<div class="from">${name ? "#" + who + " · " : ""}at desk ${d}</div>` +
-        `<div class="to"><span class="arrow">→</span>${to}</div>`;
-      c.querySelector(".nm").textContent = name || "#" + who;
+        `<div class="corner">${d}</div>` +
+        (name ? `<div class="nm"></div>` : "") +
+        `<div class="lead">${lead}</div>` +
+        `<div class="to">${to}</div>`;
+      if (name) c.querySelector(".nm").textContent = name;
       g.appendChild(c);
     }
   }
