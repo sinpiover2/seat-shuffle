@@ -131,7 +131,7 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
 .card.empty { background: transparent; border: 2px dashed var(--off); }
 .card.none { visibility: hidden; }
 .card { position: relative; }
-.card .corner { position: absolute; top: calc(var(--unit) * 0.05); left: calc(var(--unit) * 0.07); font-size: calc(var(--unit) * 0.13); font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; line-height: 1; }
+.card .corner { position: absolute; top: calc(var(--unit) * 0.05); left: calc(var(--unit) * 0.07); font-size: calc(var(--unit) * 0.12); font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; line-height: 1; }
 .card .lead { font-size: calc(var(--unit) * 0.11); font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; line-height: 1.1; }
 .show.moving .card .lead { color: var(--ink); }
 .card .nm { padding: 0 calc(var(--unit) * 0.12); font-size: calc(var(--unit) * 0.13); font-weight: 700; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
@@ -139,9 +139,18 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
 .card.hidden .to { color: var(--muted); }
 .show.moving .card:not(.empty) { border-color: var(--signal); }
 .show.moving .card .to { color: var(--ink); }
-.show.moving .card { animation: pulse 1.6s ease-in-out infinite; }
-@keyframes pulse { 50% { background: color-mix(in srgb, var(--signal) 22%, var(--surface)); } }
-@media (prefers-reduced-motion: reduce) { .show.moving .card { animation: none; } }
+.show:not(.moving) .room, .show:not(.moving) .progress { display: none; }
+.show:not(.moving) { grid-template-rows: minmax(0, 1fr); align-content: center; }
+.show:not(.moving) .bar { flex-direction: column; justify-content: center; text-align: center; gap: 3vh; }
+.show:not(.moving) .clock { flex-direction: column; align-items: center; gap: 1vh; }
+.show:not(.moving) .clock .time { font-size: clamp(5rem, 30vh, 24rem); }
+.show:not(.moving) .clock .what { font-size: clamp(1.1rem, 4vh, 2.4rem); }
+.show:not(.moving) .ctrl { justify-content: center; }
+.card.blink .to, .card.blink .nm { animation: blink 0.6s ease-in-out 3; }
+.card.pop .to, .card.pop .nm { animation: pop 0.45s cubic-bezier(.2,.9,.3,1.3) both; }
+@keyframes blink { 50% { opacity: 0.08; } }
+@keyframes pop { 0% { transform: scale(0.4); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .card.blink .to, .card.blink .nm, .card.pop .to, .card.pop .nm { animation: none; } }
 .ctrl { display: flex; flex-wrap: wrap; gap: 8px; }
 .classbar { display: flex; flex-wrap: wrap; align-items: end; gap: 12px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px 20px; }
 .classbar .hint { flex-basis: 100%; }
@@ -234,7 +243,6 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
           <input type="number" id="moveSecs" min="10" max="600" step="5">
         </label>
       </div>
-      <label class="check"><input type="checkbox" id="surprise"><span>Keep next seats hidden until it's time to move</span></label>
       <label class="check"><input type="checkbox" id="chime"><span>Play a chime when it's time to move</span></label>
       <label class="check"><input type="checkbox" id="waitForMe"><span>After the move, wait for me to start the next round</span></label>
 
@@ -256,7 +264,6 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
     <div class="ctrl">
       <button class="btn primary" id="startPause">Start</button>
       <button class="btn" id="moveNow">Move now</button>
-      <button class="btn" id="reshuffle">New seats</button>
       <button class="btn" id="homeShow">Home seats</button>
       <button class="btn" id="full">Full screen</button>
       <button class="btn" id="back">Setup</button>
@@ -296,7 +303,7 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
   //   active: desk numbers in use; names: keyed by home seat number; at: { currentDesk: homeSeatNumber }
   const newClass = (name, active) => ({ id: "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, active: active.slice(), names: {}, at: null });
   const defaults = {
-    minutes: 10, moveSecs: 60, surprise: false, chime: true, waitForMe: false,
+    minutes: 10, moveSecs: 60, chime: true, waitForMe: false,
     classes: null, current: null
   };
 
@@ -337,6 +344,7 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
     if (!last || JSON.stringify(last.at) !== JSON.stringify(C.at)) logSeating(Object.keys(C.at).every(d => C.at[d] == d));
   }
   let phase = "idle";        // idle | counting | paused | moving | waiting
+  let moveStage = null;      // null | blink | reveal
   let endAt = 0, remaining = 0, total = 0;
   let audio = null, wake = null;
 
@@ -450,7 +458,6 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
     $("homeState").textContent = away ? `Right now ${away} students are away from their home seats.` : "Everyone is in their home seat.";
     $("minutes").value = S.minutes;
     $("moveSecs").value = S.moveSecs;
-    $("surprise").checked = S.surprise;
     $("chime").checked = S.chime;
     $("waitForMe").checked = S.waitForMe;
   }
@@ -458,7 +465,7 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
   $("allOn").onclick = () => { C.active = Array.from({ length: TOTAL }, (_, i) => i + 1); homeAll(); plan = null; phase = "idle"; save(); renderSetup(); };
   $("allOff").onclick = () => { C.active = []; C.names = {}; homeAll(); plan = null; phase = "idle"; save(); renderSetup(); };
   function goHome() {
-    homeAll(); logSeating(true); plan = makePlan(); phase = "idle"; total = 0; save();
+    homeAll(); logSeating(true); plan = makePlan(); phase = "idle"; moveStage = null; moveToken++; total = 0; save();
     renderSetup();
     if (!$("showView").hidden) { renderRoom(); renderBar(); }
   }
@@ -470,7 +477,7 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
     $(id).value = S[key]; save(); renderSetup();
   });
   num("minutes", "minutes", 0.5, 180); num("moveSecs", "moveSecs", 10, 600);
-  ["surprise", "chime", "waitForMe"].forEach(k => $(k).addEventListener("change", () => { S[k] = $(k).checked; save(); }));
+  ["chime", "waitForMe"].forEach(k => $(k).addEventListener("change", () => { S[k] = $(k).checked; save(); }));
 
   // ---------- Big screen ----------
   function fmt(ms) {
@@ -481,28 +488,25 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
   function renderRoom() {
     if (!$("sheet").hidden) renderSheet();
     const g = $("roomgrid");
-    const hide = S.surprise && phase !== "moving";
     g.innerHTML = "";
     for (const d of CELLS) {
       const c = document.createElement("div");
       if (d === "|") { c.className = "aisle"; g.appendChild(c); continue; }
       if (d === 0) { c.className = "card none"; g.appendChild(c); continue; }
       if (!C.active.includes(d)) { c.className = "card empty"; g.appendChild(c); continue; }
-      c.className = "card" + (hide ? " hidden" : "");
+      c.className = "card" + (moveStage === "blink" ? " blink" : moveStage === "reveal" ? " pop" : "");
       c.tabIndex = 0; c.setAttribute("role", "button");
-      c.setAttribute("aria-label", "Desk " + d + ": show where this student was and is going");
+      c.setAttribute("aria-label", "Desk " + d + ": student " + C.at[d] + ". Show seat history");
       c.onclick = () => openDesk(d);
       c.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDesk(d); } };
       const who = C.at[d];
       const name = C.names[who];
-      const to = hide ? "?" : plan[d];
-      // The card sits in this desk's spot, so it only needs the desk number (corner) and where to go.
-      const lead = phase === "moving" ? "Go now to" : hide ? "Next desk" : "Go to";
+      // Desk number never changes (it's written on the desk). The middle shows who sits here.
       c.innerHTML =
-        `<div class="corner">${d}</div>` +
-        (name ? `<div class="nm"></div>` : "") +
-        `<div class="lead">${lead}</div>` +
-        `<div class="to">${to}</div>`;
+        `<div class="corner">Desk ${d}</div>` +
+        `<div class="lead">Student</div>` +
+        `<div class="to">${who}</div>` +
+        (name ? `<div class="nm"></div>` : "");
       if (name) c.querySelector(".nm").textContent = name;
       g.appendChild(c);
     }
@@ -518,17 +522,16 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
     else if (phase === "idle" || phase === "waiting") ms = S.minutes * 60000;
     pct = total ? 100 * (1 - ms / total) : 0;
     if (phase === "idle" || phase === "waiting") pct = 0;
-    $("time").textContent = phase === "moving" ? "Move now!" : fmt(ms);
+    $("time").textContent = phase === "moving" ? (moveStage === "blink" ? "Time to move" : "Move now!") : fmt(ms);
     $("what").textContent = {
       idle: "until the next move. Press Start.",
       counting: "until the next move",
       paused: "Paused",
-      moving: S.waitForMe ? "Go to your new desk · " + fmt(ms) + " left" : "Go to your new desk · next round starts in " + fmt(ms),
+      moving: moveStage === "blink" ? "Watch the desks…" : "Find your number. That's your new desk · " + fmt(ms) + " left",
       waiting: "Everyone seated? Press Start for the next round."
     }[phase];
     $("startPause").textContent = phase === "counting" ? "Pause" : phase === "moving" ? "Everyone's seated" : phase === "paused" ? "Resume" : "Start";
     $("moveNow").hidden = phase === "moving";
-    $("reshuffle").hidden = phase === "moving";
     $("bar").style.width = Math.min(100, Math.max(0, pct)) + "%";
   }
 
@@ -540,20 +543,33 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
     renderRoom(); renderBar();
   }
 
+  // moveStage: null outside a move, "blink" while the current students flash, "reveal" once the new students show.
+  const BLINK_MS = 1900;
+  let moveToken = 0;
   function beginMove() {
-    phase = "moving";
+    if (!plan) plan = makePlan();
+    phase = "moving"; moveStage = "blink";
     total = S.moveSecs * 1000;
     endAt = Date.now() + total;
     if (S.chime) chime();
     renderRoom(); renderBar();
+    const token = ++moveToken;
+    setTimeout(() => { if (token === moveToken && moveStage === "blink") reveal(); }, BLINK_MS);
   }
 
-  function finishMove() {
-    // Students (and their names) travel to their new desks.
+  function reveal() {
+    // Each student moves to their new desk; each desk now shows who is coming.
     const moved = {};
     Object.keys(C.at).forEach(d => { moved[plan[d]] = C.at[d]; });
     C.at = moved; logSeating(false);
     plan = makePlan(); save();
+    moveStage = "reveal";
+    renderRoom(); renderBar();
+  }
+
+  function finishMove() {
+    if (moveStage === "blink") reveal();
+    moveToken++; moveStage = null;
     if (S.waitForMe) { phase = "waiting"; total = 0; renderRoom(); renderBar(); }
     else startCountdown();
   }
@@ -574,7 +590,6 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
     renderBar();
   };
   $("moveNow").onclick = () => { unlockAudio(); beginMove(); };
-  $("reshuffle").onclick = () => { plan = makePlan(); save(); renderRoom(); };
   $("homeShow").onclick = goHome;
   $("full").onclick = () => {
     const el = document.documentElement;
@@ -625,8 +640,7 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
     });
     if (!trail.length || trail[trail.length - 1].desk !== d) trail.push({ desk: d, t: null, home: d === who });
     const past = trail.slice(0, -1);
-    const hide = S.surprise && phase !== "moving";
-    const next = hide ? "?" : plan && plan[d];
+    const next = null;
     // Everyone else who sat at this desk today.
     const others = [];
     today.forEach(e => {
@@ -639,7 +653,7 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
     const chip = (desk, cls, cap) => `<div class="step ${cls}"><div class="desknum">${desk}</div><div class="cap">${cap}</div></div>`;
     const steps = past.slice(-5).map(p => chip(p.desk, "was", (p.home ? "home · " : "") + clock(p.t)))
       .concat(chip(d, "now", "now"))
-      .concat(next ? chip(next, "next", phase === "moving" ? "go now" : hide ? "hidden" : "next") : []);
+      .concat(next ? chip(next, "next", "next") : []);
     $("sheetBody").innerHTML = `
       <p class="label">Desk ${d}</p>
       <h2 id="sheetTitle">${name ? esc(name) : "Student #" + who}</h2>
