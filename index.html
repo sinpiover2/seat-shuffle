@@ -123,6 +123,8 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
 .timebar.urgent { animation: urgent 1s ease-in-out infinite; }
 @keyframes urgent { 50% { transform: scale(1.012); } }
 @media (prefers-reduced-motion: reduce) { .timebar.urgent { animation: none; } .timebar .fill { transition: none; } }
+.show { background: var(--bg); transition: background-color .12s ease-out; }
+.show.flash { background: color-mix(in srgb, var(--signal) 60%, var(--bg)); }
 .show.hide-time .clock .time, .show.hide-time .timebar { display: none; }
 .room { container-type: size; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 0.8vh; }
 .room .front { font-size: clamp(0.7rem, 1.6vh, 1rem); }
@@ -249,6 +251,7 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
       </div>
       <label class="check"><input type="checkbox" id="showCount"><span>Show the time left until the next move</span></label>
       <label class="check"><input type="checkbox" id="showMove"><span>Show a countdown for getting to the new seat</span></label>
+      <label class="check"><input type="checkbox" id="flash"><span>Flash the screen while students move, faster as time runs out (at most 3 flashes a second)</span></label>
       <label class="check"><input type="checkbox" id="chime"><span>Play a chime when it's time to move</span></label>
       <label class="check"><input type="checkbox" id="waitForMe"><span>After the move, wait for me to start the next round</span></label>
 
@@ -309,7 +312,7 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
   //   active: desk numbers in use; names: keyed by home seat number; at: { currentDesk: homeSeatNumber }
   const newClass = (name, active) => ({ id: "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, active: active.slice(), names: {}, at: null });
   const defaults = {
-    minutes: 10, moveSecs: 60, showCount: true, showMove: true, chime: true, waitForMe: false,
+    minutes: 10, moveSecs: 60, showCount: true, showMove: true, flash: true, chime: true, waitForMe: false,
     classes: null, current: null
   };
 
@@ -366,7 +369,7 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
   function switchClass(id) {
     C = S.classes.find(c => c.id === id) || S.classes[0];
     S.current = C.id; checkAt();
-    plan = savedPlan(); phase = "idle"; total = 0; save(); renderSetup();
+    plan = savedPlan(); phase = "idle"; moveStage = null; moveToken++; total = 0; save(); flashLoop(); renderSetup();
   }
   function renderClasses() {
     const pick = $("classPick");
@@ -468,12 +471,13 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
     $("waitForMe").checked = S.waitForMe;
     $("showCount").checked = S.showCount;
     $("showMove").checked = S.showMove;
+    $("flash").checked = S.flash;
   }
 
   $("allOn").onclick = () => { C.active = Array.from({ length: TOTAL }, (_, i) => i + 1); homeAll(); plan = null; phase = "idle"; save(); renderSetup(); };
   $("allOff").onclick = () => { C.active = []; C.names = {}; homeAll(); plan = null; phase = "idle"; save(); renderSetup(); };
   function goHome() {
-    homeAll(); logSeating(true); plan = makePlan(); phase = "idle"; moveStage = null; moveToken++; total = 0; save();
+    homeAll(); logSeating(true); plan = makePlan(); phase = "idle"; moveStage = null; moveToken++; total = 0; save(); flashLoop();
     renderSetup();
     if (!$("showView").hidden) { renderRoom(); renderBar(); }
   }
@@ -485,7 +489,7 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
     $(id).value = S[key]; save(); renderSetup();
   });
   num("minutes", "minutes", 0.5, 180); num("moveSecs", "moveSecs", 10, 600);
-  ["chime", "waitForMe", "showCount", "showMove"].forEach(k => $(k).addEventListener("change", () => { S[k] = $(k).checked; save(); }));
+  ["chime", "waitForMe", "showCount", "showMove", "flash"].forEach(k => $(k).addEventListener("change", () => { S[k] = $(k).checked; save(); }));
 
   // ---------- Big screen ----------
   function fmt(ms) {
@@ -584,11 +588,24 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
     plan = makePlan(); save();
     moveStage = "reveal";
     renderRoom(); renderBar();
+    flashLoop();
+  }
+
+  const reduceMotion = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : { matches: false };
+  let flashTimer = null;
+  function flashLoop() {
+    clearTimeout(flashTimer);
+    const show = $("showView");
+    if (phase !== "moving" || moveStage !== "reveal" || !S.flash || reduceMotion.matches) { show.classList.remove("flash"); return; }
+    show.classList.toggle("flash");
+    const left = total ? Math.max(0, Math.min(1, (endAt - Date.now()) / total)) : 0;
+    const cycle = 400 + 1400 * left;          // ms per flash: 1800 at the start, 400 at the end
+    flashTimer = setTimeout(flashLoop, cycle / 2);
   }
 
   function finishMove() {
     if (moveStage === "blink") reveal();
-    moveToken++; moveStage = null;
+    moveToken++; moveStage = null; flashLoop();
     if (S.waitForMe) { phase = "waiting"; total = 0; renderRoom(); renderBar(); }
     else startCountdown();
   }
