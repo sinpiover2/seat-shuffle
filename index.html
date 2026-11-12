@@ -119,7 +119,7 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 
 .timebar.warn .fill { background: var(--signal); }
 .show.moving .timebar { background: var(--surface); box-shadow: inset 0 0 0 3px var(--ink); }
 .show.moving .timebar .fill { background: var(--signal); }
-.timebar.urgent .fill { background: #d93a2b; }
+.show.moving .timebar.urgent .fill { background: #d93a2b; }
 .timebar.urgent { animation: urgent 1s ease-in-out infinite; }
 @keyframes urgent { 50% { transform: scale(1.012); } }
 @media (prefers-reduced-motion: reduce) { .timebar.urgent { animation: none; } .timebar .fill { transition: none; } }
